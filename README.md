@@ -1,6 +1,8 @@
 # GOBuild
 There are some projects developed with golang
 
+下面是各个目录内的项目的介绍：
+
 ## HTTP Stress
 使用go写的一个H5游戏项目（node）的并发测试用例，模拟了一个用户完整的游戏过程： 
 - 去微信服务认证登陆信息，并获取code和uid
