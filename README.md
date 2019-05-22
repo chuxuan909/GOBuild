@@ -9,4 +9,6 @@ There are some projects developed with golang
 - 根据获取的code和uid去H5游戏服务认证，获取tocken
 - 根据tocken和uid选择对应的游戏项目id开始游戏
 - 获取游戏服务返回的中奖标识bingo并发送给游戏服务结束游戏
+
 整个用例发送4次http请求。并且使用go来进行压力测试在并发上变得非常容易，需要注意的是在并发中进行recover异常捕获
+
