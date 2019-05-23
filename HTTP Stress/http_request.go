@@ -10,19 +10,22 @@ import (
 	"sync"
 	"time"
 	"math/rand"
+	"sort"
+	"flag"
 )
 
 /************************************变量*****************************************************************/
 //各个服务器请求url地址
 const (
-	 wechat_url = "https://wechatdebug.xxxxx.com/H5LSK/H5GameTest"   //微信认证服务器地址
-	 h5_cer_url = "http://wechatdebug.xxxxx.com:205/LSK/userLoginLSK"		 //H5服务认证地址
-	 h5_start_url = "http://wechatdebug.xxxxx.com:205/LSK/gameStart"	     //H5游戏开始
-	 h5_end_url = "http://wechatdebug.xxxxx.com:205/LSK/gameOver"            //H5游戏结束
+	 wechat_url = "https://xxxx.com/H5LSK/H5GameTest"   //微信认证服务器地址
+	 h5_cer_url = "http://xxxx.com/LSK/userLoginLSK"		 //H5服务认证地址
+	 h5_start_url = "http://xxxx.com/LSK/gameStart"	     //H5游戏开始
+	 h5_end_url = "http://xxxx.com/LSK/gameOver"            //H5游戏结束
+	 MAX_CHANNEL_CACHE = 2000										//管道最大长度
 )
 
-//测试用的商品id列表
-//虽然建议商品id列表在json中获取，但是在测试中发现商品的多少并不影响测试的结果，因此直接写成常量
+// 测试用的商品id列表
+// 虽然建议商品id列表在json中获取，但是在测试中发现商品的多少并不影响测试的结果，因此直接写成常量
 var test_prize_list = []int{
 	100000,100001,100002,
 	100003,100004,100005,
@@ -33,20 +36,25 @@ var rwlock sync.RWMutex //有全局变量，通常都会有锁机制
 //装载错误的管道
 var err_chant = make(chan int)
 //装载测试共玩了多少次的管道
-var count_chant = make(chan int,200)  /可以使用os/flag包来使用命令行参数的形式控制管道缓存
+var count_chant = make(chan int,MAX_CHANNEL_CACHE)
+//存储中奖信息的管道
+var bingo_chant = make(chan int,MAX_CHANNEL_CACHE)
+//存储未中奖信息的管道
+var unbingo_chant = make(chan int,MAX_CHANNEL_CACHE)
+//运行时间管道
+var time_chant = make(chan int64,MAX_CHANNEL_CACHE)
 
 /************************************变量END**************************************************************/
 
 /************************************主函数***************************************************************/
 func main() {
-	for i:=212;i<312;i++{ //并发数,可以使用os/flag包来使用命令行参数的形式控制并发数
+	//接收外部选项参数
+	var count int
+	flag.IntVar(&count,"c",100,"并发数")
+	flag.Parse()
 
-	//  go	func(){  //并发开始游戏流程
-	// 	defer  try()
-	// 	play_game(i)
-	//  }()
-	go play_game(i)
-
+	for i:=212;i<212+count;i++{ //并发数
+		go play_game(i)
 	}
 
 	//主线程阻塞等待并发线程结束
@@ -55,7 +63,21 @@ func main() {
 	fmt.Scanln(&x)
 	//fmt.Printf("此次测试一个产生了%d次错误",len(err_chant))
 	//time.Sleep(time.Second*10)
-	Log(len(count_chant))  //累积玩了多少次
+
+	//统计
+	fmt.Printf("你一共完了%d次\t中奖 “%d” 次\t未中奖 “%d” 次\t金额不足 “%d” 次\n",len(count_chant),len(bingo_chant),len(unbingo_chant),len(count_chant)-len(bingo_chant)-len(unbingo_chant))
+	
+	//计算游戏流程的最长时间
+	close(time_chant)
+	time_list := ChantToSlice(time_chant) 			//统计耗时的管道内容输出到一个切片中
+	sort.Ints(time_list)                  			//排序
+	//max_time := time_list[len(time_list)-1:][0]   //取出切片中的最大值
+	max_time := time_list[len(time_list)-1]	        //取出切片中的最大值
+	fmt.Printf("游戏最长耗时： %d毫秒\t\t",max_time)
+
+	//计算游戏流程的评价时间
+	avg_time := slice_avg(time_list)
+	fmt.Printf("游戏平均耗时： %d毫秒\n",avg_time)
 }
 
 /************************************主函数END************************************************************/
@@ -63,6 +85,15 @@ func main() {
 /************************************主要功能函数*********************************************************/
 //游戏入口主函数，需要一个随机的字符串来初始化或者确定用户的unionid
 func play_game(unionid_num int){
+	//异常捕获
+	defer func() { //注意：异常捕获函数必须要写在开头，否则没用！！！
+		//异常捕获匿名函数（自执行函数）
+		if r := recover(); r != nil {
+				fmt.Printf("捕获到的错误：%v\n", r)
+		}
+	}()
+
+	t_start := time.Now().UnixNano()
 	Log("【H5游戏流程开始】") 			     
 	Log(" 微信服务器认证中... ...") 
 	uid,code :=HttpPostForm(wechat_url,unionid_num)             //微信服务器认证功能函数，根据发送的unionid来获取uid和code
@@ -72,11 +103,13 @@ func play_game(unionid_num int){
 	bingo,prize_id := H5_start(uid,tocken) 			//游戏开始功能函数
 	Log(" 游戏完毕，结束中... ...") 
 	res_code := H5_end(uid,prize_id,bingo,tocken)   //游戏结束功能函数
+	t_compelete := time.Now().UnixNano()
 	Log("【H5游戏流程结束，将输出游戏结果：】") 
 	if res_code == 0 {
 		fmt.Printf("\n 游戏用户uid为:%d,游戏商品id为:%d 是否中奖(1为中奖0为不中奖)? ===>【%d】<===\n",uid,prize_id,bingo)
 	}
 	count_chant <- 1  //放入管道计数
+	time_chant <- (t_compelete-t_start)
 }
 
 
@@ -97,9 +130,9 @@ func HttpPostForm(url string,unionid_num int) (uid int,codes string){
 	// fmt.Println(string(j_data))
 	/**********************************************************/	
 	
-	//post_data := "{\"userInfo\":{\"uniid\":\"okdDX1U3eEshOW18t_OEuhNKsOjE\",\"sex\":1,\"nickname\":\"坤测试\",\"headimgurl\":\"无\",\"openid\":\"o77lw1jv5O_hKMUL3O2lFcBAfbEk\"}}"
-	//post_data := "{\"userInfo\":{\"uniid\":\"OW18tasd1\",\"sex\":1,\"nickname\":\"坤测试\",\"headimgurl\":\"无\",\"openid\":\"o77lw1jv5O_hKMUL3O2lFcBAfbEk\"}}"
-	post_data := fmt.Sprintf("{\"userInfo\":{\"uniid\":\"OW18tasd1%d\",\"sex\":1,\"nickname\":\"坤测试\",\"headimgurl\":\"无\",\"openid\":\"o77lw1jv5O_hKMUL3O2lFcBAfbEk\"}}",uniid_num)
+	//post_data := "{\"userInfo\":{\"unionid\":\"okdDX1U3eEshOW18t_OEuhNKsOjE\",\"sex\":1,\"nickname\":\"坤测试\",\"headimgurl\":\"无\",\"openid\":\"o77lw1jv5O_hKMUL3O2lFcBAfbEk\"}}"
+	//post_data := "{\"userInfo\":{\"unionid\":\"OW18tasd1\",\"sex\":1,\"nickname\":\"坤测试\",\"headimgurl\":\"无\",\"openid\":\"o77lw1jv5O_hKMUL3O2lFcBAfbEk\"}}"
+	post_data := fmt.Sprintf("{\"userInfo\":{\"unionid\":\"OW18tasd1%d\",\"sex\":1,\"nickname\":\"坤测试\",\"headimgurl\":\"无\",\"openid\":\"o77lw1jv5O_hKMUL3O2lFcBAfbEk\"}}",unionid_num)
 
 	body:=http_handler(url,post_data,"application/json") //调用辅助函数
 
@@ -150,7 +183,7 @@ func HttpPostForm(url string,unionid_num int) (uid int,codes string){
 //去H5服务器认证
 func H5_Cer(uid int,code string) (tocken string){
 
-	post_data := fmt.Sprintf("uid=%d&code=%s&uniId=okdDX1U3eEshOW18t_OEuhNKsOjE&loginIp=127.0.0.1&loginType=1&sex=1&nickName=坤测试&photo=www.baidu.com&openId=2sadsad",uid,code)
+	post_data := fmt.Sprintf("uid=%d&code=%s&unionId=okdDX1U3eEshOW18t_OEuhNKsOjE&loginIp=127.0.0.1&loginType=1&sex=1&nickName=坤测试&photo=www.baidu.com&openId=2sadsad",uid,code)
 	//posts  := strings.NewReader(post_data)
 
 	body:=http_handler(h5_cer_url,post_data,"application/x-www-form-urlencoded") //调用辅助函数
@@ -247,6 +280,14 @@ func H5_start(uid int,tocken string) (bingo,prize_id int){
 	re_bingo := res_map_second["bingo"] //获取到了想要的数据，但是类型仍然为接口类型
 
 	bingo = int(re_bingo.(float64))    //接口类型为float64，因此需要再转换为int
+
+	//如果中奖，放入中奖的管道中,否则放入未中奖管道
+	if bingo == 1 {
+		bingo_chant <- bingo
+	}else{
+		unbingo_chant <- bingo
+	}
+
 	return 
 }
 
@@ -340,12 +381,31 @@ func http_handler(url,post_data,con_type string) (body []byte){
 
 }
 
-//异常捕获函数
-func try(){
-	if r := recover(); r != nil {
-		//err_chant <- 1
-		Log("产生一个错误，已经捕获")
-		}
+//管道转切片
+func ChantToSlice(chans chan int64)[]int{
+	if len(chans)==0 {
+		panic("chan 不能为空")
+	}
+
+	list :=[]int{}
+
+	for x := range chans {
+		list=append(list,int(x/1000/1000))
+	}
+	return list
 }
 
+//求管切片内整数的平均数
+func slice_avg(list []int)(avg int){
+	if len(list)==0 {
+		panic("切片不能为空")
+	}
+	var sum int
+	sum = 0
+	for _,value := range list{
+		sum+=value
+	}
+	avg = sum/len(list)
+	return
+}
 /************************************其他辅助函数END******************************************************/
