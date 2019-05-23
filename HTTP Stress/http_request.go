@@ -130,8 +130,6 @@ func HttpPostForm(url string,unionid_num int) (uid int,codes string){
 	// fmt.Println(string(j_data))
 	/**********************************************************/	
 	
-	//post_data := "{\"userInfo\":{\"unionid\":\"okdDX1U3eEshOW18t_OEuhNKsOjE\",\"sex\":1,\"nickname\":\"坤测试\",\"headimgurl\":\"无\",\"openid\":\"o77lw1jv5O_hKMUL3O2lFcBAfbEk\"}}"
-	//post_data := "{\"userInfo\":{\"unionid\":\"OW18tasd1\",\"sex\":1,\"nickname\":\"坤测试\",\"headimgurl\":\"无\",\"openid\":\"o77lw1jv5O_hKMUL3O2lFcBAfbEk\"}}"
 	post_data := fmt.Sprintf("{\"userInfo\":{\"unionid\":\"OW18tasd1%d\",\"sex\":1,\"nickname\":\"坤测试\",\"headimgurl\":\"无\",\"openid\":\"o77lw1jv5O_hKMUL3O2lFcBAfbEk\"}}",unionid_num)
 
 	body:=http_handler(url,post_data,"application/json") //调用辅助函数
